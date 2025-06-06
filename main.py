@@ -36,6 +36,7 @@ async def on_ready():
     # スラッシュコマンドをサーバーに登録（同期）
     await bot.tree.sync()
     # 起動メッセージをコンソール（Renderのログ）に表示
+    print('------')
     print(f'{bot.user.name} が起動しました！')
     print('------')
 
@@ -53,22 +54,19 @@ async def on_message(message):
         if embed.description and "表示順をアップしたよ" in embed.description:
             print("Bump成功メッセージを検知しました。")
             
-            # Bumpしたユーザーを特定する（正規表現という方法で名前を探す）
+            # Bumpしたユーザーを特定する
             match = re.search(r'<@!?(\d+)>', embed.description)
             if match:
                 user_id = int(match.group(1))
-                # ユーザー情報を取得（サーバー内にいない可能性も考慮）
                 user = bot.get_user(user_id) or await bot.fetch_user(user_id)
 
                 if not user:
                     print(f"ユーザーID: {user_id} の情報が取得できませんでした。")
                     return
                 
-                # データベースにBump回数を記録
                 count = await db.record_bump(user_id)
                 print(f"{user.name} (ID: {user_id}) のBumpを記録しました。累計: {count}回")
                 
-                # 感謝のメッセージを送信
                 thanks_messages = [
                     f"ありがとう！サーバーが盛り上がるね！",
                     f"ナイスBump！君はヒーローだ！",
@@ -77,22 +75,16 @@ async def on_message(message):
                 ]
                 await message.channel.send(f"{user.mention} {random.choice(thanks_messages)} (累計 **{count}** 回)")
 
-                # 記念回数のお祝い
                 if count in [10, 50, 100, 150, 200]:
                      await message.channel.send(f"🎉🎉Congratulation!!🎉🎉 {user.mention} なんと累計 **{count}回** のBumpを達成しました！本当にありがとう！")
 
-                # 2時間後のリマインダーを設定
-                # UTC(協定世界時)で時間を扱う
                 remind_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=2)
                 await db.set_reminder(message.channel.id, remind_time)
                 print(f"次のリマインドを {remind_time.strftime('%Y-%m-%d %H:%M:%S UTC')} に設定しました。")
 
-# --- スラッシュコマンドの定義 ---
-
-# Bumpランキングを表示するコマンド
 @bot.tree.command(name="bump_top", description="Bump回数のトップ5ランキングを表示します。")
 async def bump_top(interaction: discord.Interaction):
-    await interaction.response.defer() # 応答を少し待つ
+    await interaction.response.defer()
     top_users = await db.get_top_users()
     
     if not top_users:
@@ -114,28 +106,22 @@ async def bump_top(interaction: discord.Interaction):
     embed.description = rank_text
     await interaction.followup.send(embed=embed)
 
-# 指定したユーザーのBump回数を表示するコマンド
 @bot.tree.command(name="bump_user", description="指定したユーザーのBump回数を表示します。")
 async def bump_user(interaction: discord.Interaction, user: discord.User):
     await interaction.response.defer()
     count = await db.get_user_count(user.id)
     await interaction.followup.send(f"{user.display_name}さんの累計Bump回数は **{count}回** です。")
 
-# 次のBump可能時刻を表示するコマンド
 @bot.tree.command(name="bump_time", description="次のBumpリマインド時刻を表示します。")
 async def bump_time(interaction: discord.Interaction):
     await interaction.response.defer()
     reminder = await db.get_reminder()
     if reminder:
         remind_at = reminder['remind_at']
-        # Discordのタイムスタンプ形式 <t:UNIXタイムスタンプ:R> を使うと、見る人の環境に合わせて表示される
         await interaction.followup.send(f"次のBumpが可能になるのは <t:{int(remind_at.timestamp())}:R> です。")
     else:
         await interaction.followup.send("現在、リマインドは設定されていません。`/bump` をお願いします！")
 
-# --- 定期的に実行するタスク ---
-
-# 1分ごとにリマインダーをチェックするタスク
 @tasks.loop(minutes=1)
 async def reminder_task():
     reminder = await db.get_reminder()
@@ -148,12 +134,8 @@ async def reminder_task():
                     await channel.send("⏰ そろそろBumpの時間だよ！`/bump` をお願いします！")
                 await db.clear_reminder()
                 print("リマインドメッセージを送信し、設定を削除しました。")
-            except discord.Forbidden:
-                print(f"エラー: チャンネル(ID: {reminder['channel_id']})へのメッセージ送信権限がありません。")
-            except discord.NotFound:
-                print(f"エラー: チャンネル(ID: {reminder['channel_id']})が見つかりません。")
             except Exception as e:
-                print(f"リマインダータスクで予期せぬエラーが発生しました: {e}")
+                print(f"リマインダータスクでエラー: {e}")
 
 # --- Renderのスリープを防ぐためのWebサーバー機能 ---
 app = Flask(__name__)
@@ -167,21 +149,11 @@ def health_check():
     return "OK", 200
 
 def run_flask():
-    app.run(host='0.0.0.0', port=10000)
-
-# --- BotとWebサーバーを同時に動かす ---
-async def main():
-    # Flaskを別スレッドで起動
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
+    # daemon=Trueにすることで、メインスレッド終了時にFlaskも終了する
+    flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True)
     flask_thread.start()
 
-    # Botを起動
-    async with bot:
-        await bot.start(TOKEN)
-
-if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Botを終了します。")
+# --- BotとWebサーバーを同時に動かす ---
+# ここがメインの処理
+run_flask() # 先にFlask（おまじない）を起動
+bot.run(TOKEN) # その後にBot（BUMPくん本体）を起動
