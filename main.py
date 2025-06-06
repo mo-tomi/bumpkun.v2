@@ -164,7 +164,7 @@ async def scan_history(interaction: discord.Interaction, limit: app_commands.Ran
         f"過去ログのスキャンが完了しました！\n"
         f"**{found_bumps}件**のBumpを検出し、データベースに登録しました。\n\n"
         f"【検出結果】\n"
-        f"{'\n'.join(user_list_str)}\n\n"
+        f"{user_list_text}\n\n"
         f"**安全装置が作動しました。今後このコマンドは実行できません。**"
     )
     await interaction.followup.send(result_message, ephemeral=True)
