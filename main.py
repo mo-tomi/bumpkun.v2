@@ -1,4 +1,3 @@
-# (ファイルの上半分は変更ないので省略)
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -113,9 +112,6 @@ async def bump_time(interaction: discord.Interaction):
 @app_commands.checks.has_permissions(administrator=True)
 async def scan_history(interaction: discord.Interaction, limit: app_commands.Range[int, 1, 10000] = 1000):
     await interaction.response.defer(ephemeral=True, thinking=True)
-    
-    # ★★★ここからが安全装置★★★
-    # 1. 既にスキャンが完了しているかチェック
     if await db.is_scan_completed():
         await interaction.followup.send(
             "**エラー：過去ログのスキャンは既に完了しています！**\n"
@@ -125,11 +121,8 @@ async def scan_history(interaction: discord.Interaction, limit: app_commands.Ran
         )
         logging.warning(f"User {interaction.user.name} tried to run scan_history again, but it's already completed.")
         return
-    # ★★★ここまで★★★
-
     logging.info(f"User {interaction.user.name} started history scan for {limit} messages.")
-    target_channel = interaction.channel
-    found_bumps, processed_users = 0, {}
+    target_channel, found_bumps, processed_users = interaction.channel, 0, {}
     async for message in target_channel.history(limit=limit):
         if message.author.id == DISBOARD_BOT_ID and message.embeds:
             embed = message.embeds[0]
@@ -146,13 +139,9 @@ async def scan_history(interaction: discord.Interaction, limit: app_commands.Ran
         for _ in range(count):
             await db.record_bump(user_id)
     logging.info(f"Scan complete. Found {found_bumps} bumps. Updating database.")
-    
-    # ★★★ここからが安全装置★★★
-    # 2. スキャンが完了したことをデータベースに記録
     await db.mark_scan_as_completed()
     logging.info("Marked history scan as completed.")
-    # ★★★ここまで★★★
-
+    
     user_list_str = []
     for user_id, count in sorted(processed_users.items(), key=lambda item: item[1], reverse=True):
         try:
@@ -160,6 +149,9 @@ async def scan_history(interaction: discord.Interaction, limit: app_commands.Ran
             user_list_str.append(f"・{user.display_name}: {count}回")
         except discord.NotFound:
             user_list_str.append(f"・不明なユーザー(ID:{user_id}): {count}回")
+            
+    # ★★★ここが修正された部分★★★
+    user_list_text = "\n".join(user_list_str)
     result_message = (
         f"過去ログのスキャンが完了しました！\n"
         f"**{found_bumps}件**のBumpを検出し、データベースに登録しました。\n\n"
@@ -167,6 +159,7 @@ async def scan_history(interaction: discord.Interaction, limit: app_commands.Ran
         f"{user_list_text}\n\n"
         f"**安全装置が作動しました。今後このコマンドは実行できません。**"
     )
+    # ★★★ここまで★★★
     await interaction.followup.send(result_message, ephemeral=True)
 
 @scan_history.error
