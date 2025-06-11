@@ -140,3 +140,37 @@ async def load_intro_link(user_id):
         record = await connection.fetchrow("SELECT message_link FROM introduction_links WHERE user_id = $1", user_id)
     await pool.close()
     return record['message_link'] if record else None
+
+# (前のコードの最後に、これを追記する)
+
+# --- 守護神ボット Ver1.2 追加機能 ---
+
+async def list_reports(status_filter=None):
+    """条件に合う報告のリストを取得する"""
+    pool = await get_pool()
+    query = "SELECT report_id, target_user_id, status FROM reports"
+    params = []
+    
+    if status_filter and status_filter != 'all':
+        query += " WHERE status = $1"
+        params.append(status_filter)
+        
+    query += " ORDER BY report_id DESC LIMIT 20" # 最新20件に絞る
+    
+    async with pool.acquire() as connection:
+        records = await connection.fetch(query, *params)
+    await pool.close()
+    return records
+
+async def get_report_stats():
+    """報告の統計情報を取得する"""
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        # ステータスごとの件数を数える
+        stats = await connection.fetch('''
+            SELECT status, COUNT(*) as count 
+            FROM reports 
+            GROUP BY status
+        ''')
+    await pool.close()
+    return {row['status']: row['count'] for row in stats}
