@@ -1,7 +1,13 @@
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-import os, re, random, datetime, asyncio, threading, logging
+import os
+import re
+import random
+import datetime
+import asyncio
+import threading
+import logging
 import database as db
 from flask import Flask
 
@@ -20,7 +26,7 @@ bot = commands.Bot(command_prefix='/', intents=intents)
 # --- Webサーバー（Renderスリープ対策）の準備 ---
 app = Flask(__name__)
 @app.route('/')
-def index(): return "BUMPくん Ver4.0 is running!", 200
+def index(): return "BUMPくん (Simple Slot Version) is running!", 200
 @app.route('/health')
 def health_check(): return "OK", 200
 def run_web_server(): app.run(host='0.0.0.0', port=os.environ.get('PORT', 10000))
@@ -51,12 +57,11 @@ async def on_message(message):
         logging.info(f"SUCCESS! Bump interaction detected by user: {user.name} ({user.id})")
         
         try:
-            # まずは通常通りBumpを1回記録
+            # Bumpを1回記録する。この時点でスコアは+1される。
             count = await db.record_bump(user.id)
             
-            # ★★★★★★★ Ver4.0 シンプルスロットマシン機能 ★★★★★★★
+            # ★★★★★★★ ここからが新しいシンプルスロットマシン ★★★★★★★
             
-            # スロットの絵柄を準備 (候補3)
             reels = ['💎', '⭐', '🔔', '😭']
             slot_result = [random.choice(reels) for _ in range(3)]
             
@@ -69,37 +74,25 @@ async def on_message(message):
             await asyncio.sleep(1)
             await slot_machine_msg.edit(content=f"{user.mention} さんの運試しスロット！\n`[ {slot_result[0]} | {slot_result[1]} | {slot_result[2]} ]`")
             
-            # 当たり判定と景品処理
-            bonus_points = 0
+            # シンプルになった結果メッセージ
             result_message = ""
-
             if slot_result.count('💎') == 3:
-                bonus_points = 10
-                result_message = f"🎉🎉🎉 **JACKPOT!!** 🎉🎉🎉\nなんと奇跡の **ダイヤモンド揃い**！\nボーナスとしてBump回数を **+{bonus_points}回** プレゼント！"
+                result_message = f"🎉🎉🎉 **JACKPOT!!** 🎉🎉🎉\nなんと奇跡の **ダイヤモンド揃い**！すごい強運の持ち主だ！"
             elif slot_result.count('⭐') == 3:
-                bonus_points = 3
-                result_message = f"🎊🎊 **BIG WIN!** 🎊🎊\n見事な **スター揃い**！\nボーナス **+{bonus_points}回** ゲットだ！"
+                result_message = f"🎊🎊 **BIG WIN!** 🎊🎊\n見事な **スター揃い**！今日は良いことがありそう！"
             elif slot_result.count('🔔') == 3:
-                bonus_points = 1
-                result_message = f"🔔 **WIN!** 🔔\nラッキーな **ベル揃い**！\nささやかなボーナス **+{bonus_points}回** をどうぞ！"
+                result_message = f"🔔 **WIN!** 🔔\nラッキーな **ベル揃い**！ささやかな幸せ！"
             elif slot_result[0] == slot_result[1] or slot_result[1] == slot_result[2] or slot_result[0] == slot_result[2]:
                  result_message = "おしい！あと一歩だったね！"
             else:
                 result_message = "残念！次のBumpでリベンジだ！"
             
-            # スロットの結果を送信
             await message.channel.send(result_message)
 
-            # ボーナスポイントをデータベースに記録
-            if bonus_points > 0:
-                # bonus_points分、record_bumpを呼び出す
-                for _ in range(bonus_points):
-                    count = await db.record_bump(user.id)
-                await message.channel.send(f"君の累計Bump回数は **{count}回** になったよ！")
+            # ボーナスポイントの加算処理は完全に削除！
 
             # ★★★★★★★ スロットマシンここまで ★★★★★★★
 
-            # 最後に、Ver3の称号付き感謝メッセージを表示する
             await asyncio.sleep(2) # スロットの結果から少し間をあける
             
             next_bump_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=2)
@@ -120,19 +113,16 @@ async def on_message(message):
             response_message = (
                 f"**{bump_title}** {user.mention}\n"
                 f"{random.choice(thanks_messages)}\n\n"
-                f"現在の累計Bump回数は **{count}回** です！\n"
+                f"あなたの累計Bump回数は **{count}回** です！\n"
                 f"次のBumpは <t:{int(next_bump_time.timestamp())}:R> に可能になります。またよろしくね！"
             )
 
             await message.channel.send(response_message)
             
-            # 記念回数のお祝い
-            # ボーナスで記念回数をまたぐ可能性があるので、ここで判定
-            if count - bonus_points < 50 <= count: await message.channel.send(f"🎉🎉Congratulation!!🎉🎉 {user.mention} ついに累計 **50回** のBumpを達成！{bump_title}になった！")
-            if count - bonus_points < 100 <= count: await message.channel.send(f"🎉🎉Congratulation!!🎉🎉 {user.mention} ついに累計 **100回** のBumpを達成！{bump_title}になった！")
-            # ... 他の記念回数も同様に設定可能
+            # シンプルになった記念回数のお祝い
+            if count in [10, 50, 100, 150, 200]:
+                 await message.channel.send(f"🎉🎉Congratulation!!🎉🎉 {user.mention} ついに累計 **{count}回** のBumpを達成！{bump_title}になった！")
 
-            # リマインダー設定
             await db.set_reminder(message.channel.id, next_bump_time)
             logging.info(f"Reminder set for {next_bump_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         
@@ -141,7 +131,7 @@ async def on_message(message):
             await message.channel.send("Bumpは検知できたけど、記録中にエラーが起きたみたい…ごめんね！")
 
 
-# --- スラッシュコマンド (Ver3.0から変更なし) ---
+# --- スラッシュコマンド (変更なし) ---
 
 @bot.tree.command(name="bump_top", description="サーバーを盛り上げる英雄たちのランキングを表示します。")
 async def bump_top(interaction: discord.Interaction):
@@ -192,7 +182,6 @@ async def bump_top(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="bump_user", description="指定したユーザーのBump回数を表示します。")
-# ... (このコマンドは変更がないので、コードは省略)
 async def bump_user(interaction: discord.Interaction, user: discord.User):
     await interaction.response.defer()
     try:
@@ -203,7 +192,6 @@ async def bump_user(interaction: discord.Interaction, user: discord.User):
         await interaction.followup.send("ごめん！回数の表示中にエラーが起きました。")
 
 @bot.tree.command(name="bump_time", description="次のBumpリマインド時刻を表示します。")
-# ... (このコマンドは変更がないので、コードは省略)
 async def bump_time(interaction: discord.Interaction):
     await interaction.response.defer()
     try:
@@ -218,7 +206,6 @@ async def bump_time(interaction: discord.Interaction):
         await interaction.followup.send("ごめん！リマインド時刻の表示中にエラーが起きました。")
 
 @bot.tree.command(name="scan_history", description="【管理者用/一度きり】過去のBump履歴をスキャンして登録します。")
-# ... (このコマンドは変更がないので、コードは省略)
 @app_commands.checks.has_permissions(administrator=True)
 async def scan_history(interaction: discord.Interaction, limit: app_commands.Range[int, 1, 10000] = 1000):
     await interaction.response.defer(ephemeral=True, thinking=True)
@@ -237,7 +224,6 @@ async def scan_history(interaction: discord.Interaction, limit: app_commands.Ran
     await interaction.followup.send(f"スキャン完了！**{found_bumps}件**のBumpを記録しました。\n**安全装置が作動しました。**", ephemeral=True)
 
 @scan_history.error
-# ... (このエラー処理は変更がないので、コードは省略)
 async def on_scan_history_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingPermissions):
         await interaction.response.send_message("このコマンドはサーバーの管理者しか使えません。", ephemeral=True)
@@ -260,7 +246,7 @@ async def reminder_task():
         logging.error(f"Error in reminder task: {e}", exc_info=True)
 
 
-# --- 起動処理 (変更なし) ---
+# --- 起動処理 ---
 def main():
     web_thread = threading.Thread(target=run_web_server)
     web_thread.start()
