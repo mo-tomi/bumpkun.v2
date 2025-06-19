@@ -38,8 +38,7 @@ def run_web_server(): app.run(host='0.0.0.0', port=os.environ.get('PORT', 10000)
 async def on_ready():
     logging.info("Bot is preparing...")
     try:
-                # ↓↓↓↓ この1行を追加する！ ↓↓↓↓
-        await db.clear_reminder()
+
         await db.init_db()
         logging.info("Database initialized.")
         if not reminder_task.is_running():
