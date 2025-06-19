@@ -1,3 +1,4 @@
+# 1回目のデプロイに使う database.py
 import os
 import asyncpg
 import datetime
@@ -133,7 +134,6 @@ async def get_total_bumps():
 
 
 # --- 自己紹介Bot用の関数 (v2仕様) ---
-# ... (このセクションは変更なし) ...
 async def init_intro_bot_db():
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -163,7 +163,6 @@ async def get_intro_ids(user_id):
     return record
 
 # --- 守護神ボット用の関数 ---
-# ... (このセクションは変更なし) ...
 async def init_shugoshin_db():
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -280,3 +279,13 @@ async def get_report_stats():
         ''')
     await pool.close()
     return {row['status']: row['count'] for row in stats}
+
+# ↓↓↓↓ 超・魔法の呪文を追加！ ↓↓↓↓
+async def drop_reminders_table_for_rebuild():
+    """【一時的な呪文】remindersテーブルを完全に削除する"""
+    pool = await get_pool()
+    async with pool.acquire() as connection:
+        # IF EXISTS をつけることで、もしテーブルがなくてもエラーにならない
+        await connection.execute('DROP TABLE IF EXISTS reminders;')
+        print("--- 呪文発動：古いremindersテーブルを削除しました ---")
+    await pool.close()
