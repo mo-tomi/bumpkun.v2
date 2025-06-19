@@ -1,4 +1,4 @@
-# 1回目のデプロイに使う main.py
+# 2回目のデプロイに使う main.py (これが完成版！)
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -9,7 +9,7 @@ import datetime
 import asyncio
 import threading
 import logging
-import database as db  # 修正済みのdatabase.pyを使います
+import database as db
 from flask import Flask
 
 # --- 基本設定 ---
@@ -39,11 +39,8 @@ def run_web_server(): app.run(host='0.0.0.0', port=os.environ.get('PORT', 10000)
 async def on_ready():
     logging.info("Bot is preparing...")
     try:
-        # ↓↓↓↓ 超・魔法の呪文をここで使う！ ↓↓↓↓
-        await db.drop_reminders_table_for_rebuild() # 古いページを完全に破り捨てる！
-        logging.info("Casted a spell to drop the old reminders table.")
-        
-        await db.init_db() # 新しいピカピカのページを作る
+        # 呪文はもういらない！きれいな状態に戻す
+        await db.init_db()
         logging.info("Database initialized.")
         if not reminder_task.is_running():
             reminder_task.start()
