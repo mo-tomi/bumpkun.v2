@@ -89,8 +89,6 @@ async def on_message(message):
             
             await message.channel.send(result_message)
 
-            # ボーナスポイントの加算処理は完全に削除！
-
             # ★★★★★★★ スロットマシンここまで ★★★★★★★
 
             await asyncio.sleep(2) # スロットの結果から少し間をあける
@@ -131,7 +129,7 @@ async def on_message(message):
             await message.channel.send("Bumpは検知できたけど、記録中にエラーが起きたみたい…ごめんね！")
 
 
-# --- スラッシュコマンド (変更なし) ---
+# --- スラッシュコマンド ---
 
 @bot.tree.command(name="bump_top", description="サーバーを盛り上げる英雄たちのランキングを表示します。")
 async def bump_top(interaction: discord.Interaction):
@@ -160,18 +158,14 @@ async def bump_top(interaction: discord.Interaction):
             elif i == 2: rank_emoji = "🥉"
             else: rank_emoji = f"**{i+1}位**"
             
-            gap_text = ""
-            if i > 0:
-                prev_user_bumps = top_users[i-1]['bump_count']
-                gap = prev_user_bumps - user_bumps
-                if gap > 0:
-                    gap_text = f" (あと{gap}回でランクアップ！)"
-
+            # --- 修正箇所 ---
+            # 「あとX回でランクアップ！」の表記と計算ロジックを削除
             embed.add_field(
                 name=f"{rank_emoji} {user.display_name}",
-                value=f"> **{user_bumps}** 回" + gap_text,
+                value=f"> **{user_bumps}** 回", # gap_textを削除
                 inline=False
             )
+            # --- 修正ここまで ---
             
         embed.set_footer(text="君のBumpが、このサーバーの歴史を創る！")
         await interaction.followup.send(embed=embed)
