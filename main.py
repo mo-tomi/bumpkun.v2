@@ -1,3 +1,4 @@
+# 1回目のデプロイに使う main.py
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -38,12 +39,15 @@ def run_web_server(): app.run(host='0.0.0.0', port=os.environ.get('PORT', 10000)
 async def on_ready():
     logging.info("Bot is preparing...")
     try:
-
-        await db.init_db()
+        # ↓↓↓↓ 超・魔法の呪文をここで使う！ ↓↓↓↓
+        await db.drop_reminders_table_for_rebuild() # 古いページを完全に破り捨てる！
+        logging.info("Casted a spell to drop the old reminders table.")
+        
+        await db.init_db() # 新しいピカピカのページを作る
         logging.info("Database initialized.")
         if not reminder_task.is_running():
             reminder_task.start()
-            logging.info("Advanced Reminder task started.") # ログメッセージを更新
+            logging.info("Advanced Reminder task started.")
         await bot.tree.sync()
         logging.info("Slash commands synchronized.")
         logging.info(f"------\nBot started successfully: {bot.user.name}\n------")
@@ -60,7 +64,6 @@ async def on_message(message):
         try:
             count = await db.record_bump(user.id)
             
-            # (スロットマシンと応答メッセージの処理は変更なしなので、省略)
             reels = ['💎', '⭐', '🔔', '😭']
             slot_result = [random.choice(reels) for _ in range(3)]
             slot_machine_msg = await message.channel.send(f"{user.mention} さんの運試しスロット！\n`[ ? | ? | ? ]`")
@@ -86,7 +89,6 @@ async def on_message(message):
             await message.channel.send(response_message)
             if count in [10, 50, 100, 150, 200]: await message.channel.send(f"🎉🎉Congratulation!!🎉🎉 {user.mention} ついに累計 **{count}回** のBumpを達成！{bump_title}になった！")
 
-            # 新しいリマインダーをセットする（古いものは上書きされる）
             await db.set_reminder(message.channel.id, next_bump_time)
             logging.info(f"Reminder set for {next_bump_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         
@@ -95,12 +97,12 @@ async def on_message(message):
             await message.channel.send("Bumpは検知できたけど、記録中にエラーが起きたみたい…ごめんね！")
 
 
-# --- スラッシュコマンド (変更なしなので省略) ---
+# --- スラッシュコマンド ---
 @bot.tree.command(name="bump_top", description="サーバーを盛り上げる英雄たちのランキングを表示します。")
 async def bump_top(interaction: discord.Interaction):
     await interaction.response.defer()
     try:
-        top_users = await db.get_top_users() # limitなしで呼ぶとデフォルトの5名が取得される
+        top_users = await db.get_top_users()
         server_total_bumps = await db.get_total_bumps()
         if not top_users:
             await interaction.followup.send("まだ誰もBumpしていません。君が最初のヒーローになろう！")
@@ -179,7 +181,6 @@ async def reminder_task():
         channel_id = reminder['channel_id']
         status = reminder.get('status', 'waiting')
 
-        # ステージ1：通常のリマインド（2時間経過後）
         if status == 'waiting' and now_utc >= remind_at:
             try:
                 channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
@@ -190,7 +191,6 @@ async def reminder_task():
             except Exception as e:
                 logging.error(f"Failed to send 1st reminder: {e}")
 
-        # ステージ2：謙虚な追加リマインド（さらに30分経過後）
         elif status == 'notified_1st' and now_utc >= (remind_at + datetime.timedelta(minutes=30)):
             try:
                 channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
@@ -215,7 +215,6 @@ async def reminder_task():
                             await channel.send(message)
                             logging.info(f"Sent 2nd (humble) reminder to channel {channel_id}")
                     
-                    # 役目を終えたのでリマインダーを削除
                     await db.clear_reminder()
             except Exception as e:
                 logging.error(f"Failed to send 2nd reminder: {e}")
