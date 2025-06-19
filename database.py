@@ -1,4 +1,4 @@
-# 1回目のデプロイに使う database.py
+# 2回目のデプロイに使う database.py (これが完成版！)
 import os
 import asyncpg
 import datetime
@@ -23,8 +23,6 @@ async def init_db():
                 bump_count INTEGER NOT NULL DEFAULT 0
             );
         ''')
-        # --- 修正箇所 1 ---
-        # remindersテーブルに、リマインダーの状態を保存する status カラムを追加
         await connection.execute('''
             CREATE TABLE IF NOT EXISTS reminders (
                 id SERIAL PRIMARY KEY,
@@ -69,12 +67,9 @@ async def record_bump(user_id):
     await pool.close()
     return count
 
-# --- 修正箇所 2 ---
-# limit引数を追加して、取得する人数を指定できるようにする
 async def get_top_users(limit=5):
     pool = await get_pool()
     async with pool.acquire() as connection:
-        # LIMIT句で$1プレースホルダを使い、引数のlimit値で件数を指定
         records = await connection.fetch(
             'SELECT user_id, bump_count FROM users ORDER BY bump_count DESC LIMIT $1', limit
         )
@@ -89,16 +84,12 @@ async def get_user_count(user_id):
     return count or 0
 
 async def set_reminder(channel_id, remind_time):
-    # この関数は、新しいテーブル定義のおかげで修正不要
-    # status は DEFAULT 'waiting' で自動的にセットされる
     pool = await get_pool()
     async with pool.acquire() as connection:
         await connection.execute('DELETE FROM reminders')
         await connection.execute('INSERT INTO reminders (channel_id, remind_at) VALUES ($1, $2)', channel_id, remind_time)
     await pool.close()
 
-# --- 修正箇所 3 ---
-# 取得するデータに status を追加
 async def get_reminder():
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -108,12 +99,9 @@ async def get_reminder():
     await pool.close()
     return record
 
-# --- 修正箇所 4 ---
-# 新しい関数を追加して、リマインダーの状態を更新できるようにする
 async def update_reminder_status(channel_id, new_status):
     pool = await get_pool()
     async with pool.acquire() as connection:
-        # channel_idをキーにしてステータスを更新する
         await connection.execute(
             'UPDATE reminders SET status = $1 WHERE channel_id = $2', new_status, channel_id
         )
@@ -279,13 +267,3 @@ async def get_report_stats():
         ''')
     await pool.close()
     return {row['status']: row['count'] for row in stats}
-
-# ↓↓↓↓ 超・魔法の呪文を追加！ ↓↓↓↓
-async def drop_reminders_table_for_rebuild():
-    """【一時的な呪文】remindersテーブルを完全に削除する"""
-    pool = await get_pool()
-    async with pool.acquire() as connection:
-        # IF EXISTS をつけることで、もしテーブルがなくてもエラーにならない
-        await connection.execute('DROP TABLE IF EXISTS reminders;')
-        print("--- 呪文発動：古いremindersテーブルを削除しました ---")
-    await pool.close()
