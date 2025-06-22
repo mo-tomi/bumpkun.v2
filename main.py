@@ -11,6 +11,10 @@ import threading
 import logging
 import database as db
 from flask import Flask
+from dotenv import load_dotenv
+
+# .envファイルから環境変数を読み込み
+load_dotenv()
 
 # --- 基本設定 ---
 logging.basicConfig(level=logging.INFO)
