@@ -74,28 +74,42 @@ async def on_message(message):
     # ただし、フォールバックとして古いinteractionも確認
     is_bump_interaction = False
     user = None
-    
-    # 新しいinteraction_metadataを優先
+      # 新しいinteraction_metadataを優先（安全な属性アクセス）
     if (message.author.id == DISBOARD_BOT_ID and 
         hasattr(message, 'interaction_metadata') and 
         message.interaction_metadata is not None):
         
-        if hasattr(message.interaction_metadata, 'name') and message.interaction_metadata.name == 'bump':
+        # 'name' 属性をチェック
+        if (hasattr(message.interaction_metadata, 'name') and 
+            message.interaction_metadata.name == 'bump'):
             is_bump_interaction = True
             user = message.interaction_metadata.user
-            logging.info(f"SUCCESS! Bump interaction detected via interaction_metadata by user: {user.name} ({user.id})")
-    
-    # フォールバック：古いinteractionも確認
+            logging.info(f"SUCCESS! Bump検知 (name属性経由): ユーザー {user.name} ({user.id})")
+        # 'command_name' 属性をチェック（代替可能性）
+        elif (hasattr(message.interaction_metadata, 'command_name') and 
+              message.interaction_metadata.command_name == 'bump'):
+            is_bump_interaction = True
+            user = message.interaction_metadata.user
+            logging.info(f"SUCCESS! Bump検知 (command_name属性経由): ユーザー {user.name} ({user.id})")
+        # userが存在し、DISBOARDからのメッセージであればbumpとして扱う（フォールバック）
+        elif hasattr(message.interaction_metadata, 'user'):
+            is_bump_interaction = True
+            user = message.interaction_metadata.user
+            logging.info(f"SUCCESS! Bump検知 (フォールバック): ユーザー {user.name} ({user.id})")
+            # デバッグ用：interaction_metadata の属性を確認
+            logging.info(f"interaction_metadata の属性: {dir(message.interaction_metadata)}")
+      # フォールバック：古いinteractionも確認
     elif (message.author.id == DISBOARD_BOT_ID and 
           hasattr(message, 'interaction') and 
           message.interaction is not None and 
+          hasattr(message.interaction, 'name') and
           message.interaction.name == 'bump'):
         
         is_bump_interaction = True
         user = message.interaction.user
-        logging.info(f"SUCCESS! Bump interaction detected via legacy interaction by user: {user.name} ({user.id})")
+        logging.info(f"SUCCESS! Bump検知 (legacy interaction経由): ユーザー {user.name} ({user.id})")
     
-    if is_bump_interaction and user:        
+    if is_bump_interaction and user:
         try:
             count = await db.record_bump(user.id)
             
@@ -227,21 +241,58 @@ async def bump_time(interaction: discord.Interaction):
 @bot.tree.command(name="scan_history", description="【管理者用/一度きり】過去のBump履歴をスキャンして登録します。")
 @app_commands.checks.has_permissions(administrator=True)
 async def scan_history(interaction: discord.Interaction, limit: app_commands.Range[int, 1, 10000] = 1000):
-    await interaction.response.defer(ephemeral=True, thinking=True)
-    if await db.is_scan_completed():
-        await interaction.followup.send("**エラー：過去ログのスキャンは既に完了しています！**", ephemeral=True)
-        return
-    found_bumps = 0
-    async for message in interaction.channel.history(limit=limit):
-        # 非推奨警告を修正：interaction → interaction_metadata
-        if message.author.id == DISBOARD_BOT_ID and message.interaction_metadata and message.interaction_metadata.name == 'bump':
-            await db.record_bump(message.interaction_metadata.user.id)
-            found_bumps += 1
-    if found_bumps == 0:
-        await interaction.followup.send(f"{limit}件のメッセージをスキャンしましたが、Bump履歴は見つかりませんでした。", ephemeral=True)
-        return
-    await db.mark_scan_as_completed()
-    await interaction.followup.send(f"スキャン完了！**{found_bumps}件**のBumpを記録しました。\n**安全装置が作動しました。**", ephemeral=True)
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if await db.is_scan_completed():
+            await interaction.followup.send("**エラー：過去ログのスキャンは既に完了しています！**", ephemeral=True)
+            return
+        
+        found_bumps = 0
+        async for message in interaction.channel.history(limit=limit):
+            # 【修正】MessageInteractionMetadata の安全な attribute アクセス
+            if (message.author.id == DISBOARD_BOT_ID and 
+                hasattr(message, 'interaction_metadata') and 
+                message.interaction_metadata is not None):
+                
+                # interaction_metadata の属性を安全に確認
+                is_bump = False
+                user_id = None
+                
+                # 'name' 属性が存在するかチェック
+                if (hasattr(message.interaction_metadata, 'name') and 
+                    message.interaction_metadata.name == 'bump'):
+                    is_bump = True
+                    user_id = message.interaction_metadata.user.id
+                # 'command_name' 属性をチェック（代替可能性）
+                elif (hasattr(message.interaction_metadata, 'command_name') and 
+                      message.interaction_metadata.command_name == 'bump'):
+                    is_bump = True
+                    user_id = message.interaction_metadata.user.id
+                # DISBOARDからのメッセージで interaction_metadata があれば bump として扱う（フォールバック）
+                elif hasattr(message.interaction_metadata, 'user'):
+                    is_bump = True
+                    user_id = message.interaction_metadata.user.id
+                
+                if is_bump and user_id:
+                    await db.record_bump(user_id)
+                    found_bumps += 1
+        
+        if found_bumps == 0:
+            await interaction.followup.send(f"{limit}件のメッセージをスキャンしましたが、Bump履歴は見つかりませんでした。", ephemeral=True)
+            return
+        
+        await db.mark_scan_as_completed()
+        await interaction.followup.send(f"スキャン完了！**{found_bumps}件**のBumpを記録しました。\n**安全装置が作動しました。**", ephemeral=True)
+        
+    except Exception as e:
+        logging.error(f"Scan history command error: {e}", exc_info=True)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("スキャン中にエラーが発生しました。しばらく待ってから再試行してください。", ephemeral=True)
+            else:
+                await interaction.followup.send("スキャン中にエラーが発生しました。しばらく待ってから再試行してください。", ephemeral=True)
+        except Exception as send_error:
+            logging.error(f"Failed to send error message: {send_error}")
 
 @scan_history.error
 async def on_scan_history_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
