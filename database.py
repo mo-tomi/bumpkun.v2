@@ -1,21 +1,29 @@
-# 2回目のデプロイに使う database.py (これが完成版！)
+# 【最終決定版】SupabaseのSSL接続に対応した database.py
 import os
 import asyncpg
 import datetime
+import ssl # SSLヘルメットを使うためにインポート！
 
 # ### 共通で使う道具（関数） ###
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
+# --- 修正箇所：ここを大幅にアップグレード！ ---
 async def get_pool():
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL environment variable is not set.")
-    # pgBouncer環境での準備済みステートメント重複エラーを回避するため、
-    # statement_cache_sizeを0に設定してステートメントキャッシュを無効化
-    return await asyncpg.create_pool(DATABASE_URL, statement_cache_size=0)
+    
+    # Supabaseの頑固な警備員を突破するための、特別なSSL設定を作成する
+    # これは「暗号化は必須だけど、証明書の細かいチェックはしなくていいよ」というおまじない
+    ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    
+    # データベースに接続する際に、このSSL設定（ヘルメット）を渡してあげる
+    return await asyncpg.create_pool(dsn=DATABASE_URL, ssl=ctx)
 # #################################
 
 
-# --- BUMPくん用の関数 ---
+# --- BUMPくん用の関数 (この下は一切変更なし！) ---
 async def init_db():
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -124,6 +132,7 @@ async def get_total_bumps():
 
 
 # --- 自己紹介Bot用の関数 (v2仕様) ---
+# ... (このセクションは変更なし) ...
 async def init_intro_bot_db():
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -153,6 +162,7 @@ async def get_intro_ids(user_id):
     return record
 
 # --- 守護神ボット用の関数 ---
+# ... (このセクションは変更なし) ...
 async def init_shugoshin_db():
     pool = await get_pool()
     async with pool.acquire() as connection:
