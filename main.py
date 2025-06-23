@@ -195,26 +195,42 @@ async def reminder_task():
         elif status == 'notified_1st' and now_utc >= (remind_at + datetime.timedelta(minutes=30)):
             try:
                 channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
-                if channel:
-                    top_users_records = await db.get_top_users(limit=5)
-                    if top_users_records:
-                        mentions = []
-                        for record in top_users_records:
-                            try:
-                                user = channel.guild.get_member(record['user_id']) or await bot.fetch_user(record['user_id'])
-                                mentions.append(user.mention)
-                            except discord.NotFound:
-                                logging.warning(f"Could not find user with ID {record['user_id']}")
+                if channel:                    # 管理者をメンション（ユーザーとロール）
+                    admin_mentions = []
+                    guild = channel.guild
+                    
+                    # 管理人ユーザー（ID: 1300226846599675974）を検索
+                    try:
+                        admin_user = guild.get_member(1300226846599675974) or await bot.fetch_user(1300226846599675974)
+                        if admin_user:
+                            admin_mentions.append(admin_user.mention)
+                    except discord.NotFound:
+                        logging.warning("管理人ユーザー（ID: 1300226846599675974）が見つかりませんでした")
+                      # "副管理人"ロールを検索
+                    sub_admin_role = discord.utils.get(guild.roles, name="副管理人")
+                    if sub_admin_role:
+                        admin_mentions.append(sub_admin_role.mention)
+                    
+                    if admin_mentions:
+                        mentions_str = " ".join(admin_mentions)
+                        # 前回のBumpからの経過時間を計算
+                        time_elapsed = now_utc - remind_at
+                        hours = int(time_elapsed.total_seconds() // 3600)
+                        minutes = int((time_elapsed.total_seconds() % 3600) // 60)
+                        elapsed_str = f"{hours}時間{minutes}分"
                         
-                        if mentions:
-                            mentions_str = " ".join(mentions)
-                            message = (
-                                f"{mentions_str}\n"
-                                "皆様、いつもサーバーを盛り上げてくださり、本当にありがとうございます。\n"
-                                "もしもお時間よろしければ、Bumpにご協力いただけませんでしょうか…？🙇"
-                            )
-                            await channel.send(message)
-                            logging.info(f"Sent 2nd (humble) reminder to channel {channel_id}")
+                        message = (
+                            f"{mentions_str}\n"
+                            "管理者の皆様、お疲れ様です。\n"
+                            f"前回のBumpから **{elapsed_str}** が経過しました。\n"
+                            "サーバーの宣伝のため、お時間のある時にBumpをお願いいたします。🙇‍♂️"
+                        )
+                        await channel.send(message)
+                        logging.info(f"Sent 2nd (admin) reminder to channel {channel_id}")
+                    else:
+                        # 管理者が見つからない場合は一般的なメッセージを送信
+                        await channel.send("⏰ Bumpの時間が過ぎています。どなたかBumpをお願いします！")
+                        logging.info(f"Sent 2nd (fallback) reminder to channel {channel_id}")
                     
                     await db.clear_reminder()
             except Exception as e:
