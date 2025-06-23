@@ -58,11 +58,44 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    # 非推奨警告を修正：interaction → interaction_metadata
-    if message.author.id == DISBOARD_BOT_ID and message.interaction_metadata is not None and message.interaction_metadata.name == 'bump':
-        user = message.interaction_metadata.user
-        logging.info(f"SUCCESS! Bump interaction detected by user: {user.name} ({user.id})")
+    # デバッグ：すべてのDISBOARDメッセージをログに記録
+    if message.author.id == DISBOARD_BOT_ID:
+        logging.info(f"DISBOARD message detected: {message.content[:100]}")
+        if hasattr(message, 'interaction_metadata') and message.interaction_metadata:
+            logging.info(f"Interaction metadata found: {message.interaction_metadata}")
+            if hasattr(message.interaction_metadata, 'name'):
+                logging.info(f"Interaction name: {message.interaction_metadata.name}")
         
+        # 古いinteractionも確認（フォールバック）
+        if hasattr(message, 'interaction') and message.interaction:
+            logging.info(f"Old interaction found: {message.interaction}")
+    
+    # 非推奨警告を修正：interaction → interaction_metadata
+    # ただし、フォールバックとして古いinteractionも確認
+    is_bump_interaction = False
+    user = None
+    
+    # 新しいinteraction_metadataを優先
+    if (message.author.id == DISBOARD_BOT_ID and 
+        hasattr(message, 'interaction_metadata') and 
+        message.interaction_metadata is not None):
+        
+        if hasattr(message.interaction_metadata, 'name') and message.interaction_metadata.name == 'bump':
+            is_bump_interaction = True
+            user = message.interaction_metadata.user
+            logging.info(f"SUCCESS! Bump interaction detected via interaction_metadata by user: {user.name} ({user.id})")
+    
+    # フォールバック：古いinteractionも確認
+    elif (message.author.id == DISBOARD_BOT_ID and 
+          hasattr(message, 'interaction') and 
+          message.interaction is not None and 
+          message.interaction.name == 'bump'):
+        
+        is_bump_interaction = True
+        user = message.interaction.user
+        logging.info(f"SUCCESS! Bump interaction detected via legacy interaction by user: {user.name} ({user.id})")
+    
+    if is_bump_interaction and user:        
         try:
             count = await db.record_bump(user.id)
             
