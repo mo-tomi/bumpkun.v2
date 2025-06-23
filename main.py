@@ -166,10 +166,19 @@ async def scan_history(interaction: discord.Interaction, limit: app_commands.Ran
 
 @scan_history.error
 async def on_scan_history_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    # インタラクションが既に応答済みかどうかを確認してから応答する
     if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("このコマンドはサーバーの管理者しか使えません。", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("このコマンドはサーバーの管理者しか使えません。", ephemeral=True)
+        else:
+            await interaction.followup.send("このコマンドはサーバーの管理者しか使えません。", ephemeral=True)
     else:
-        await interaction.response.send_message(f"スキャン中にエラー: `{error}`", ephemeral=True)
+        # データベースエラーの詳細をログに記録し、ユーザーには簡潔なメッセージを表示
+        logging.error(f"Scan history command error: {error}", exc_info=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("スキャン中にエラーが発生しました。しばらく待ってから再試行してください。", ephemeral=True)
+        else:
+            await interaction.followup.send("スキャン中にエラーが発生しました。しばらく待ってから再試行してください。", ephemeral=True)
 
 # --- 定期タスク (新しい2段階リマインダーロジック) ---
 @tasks.loop(minutes=1)

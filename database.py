@@ -9,7 +9,9 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 async def get_pool():
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL environment variable is not set.")
-    return await asyncpg.create_pool(DATABASE_URL)
+    # pgBouncer環境での準備済みステートメント重複エラーを回避するため、
+    # statement_cache_sizeを0に設定してステートメントキャッシュを無効化
+    return await asyncpg.create_pool(DATABASE_URL, statement_cache_size=0)
 # #################################
 
 
