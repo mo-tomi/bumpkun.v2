@@ -102,48 +102,94 @@ async def on_message(message):
 # --- スラッシュコマンド ---
 @bot.tree.command(name="bump_top", description="サーバーを盛り上げる英雄たちのランキングを表示します。")
 async def bump_top(interaction: discord.Interaction):
-    await interaction.response.defer()
     try:
+        # 即座に応答してDiscordの3秒制限を回避
+        await interaction.response.defer()
+        
+        # データベース処理を実行
         top_users = await db.get_top_users()
         server_total_bumps = await db.get_total_bumps()
+        
         if not top_users:
             await interaction.followup.send("まだ誰もBumpしていません。君が最初のヒーローになろう！")
             return
-        embed = discord.Embed(title="🏆 BUMPランキングボード 🏆", description=f"サーバー合計Bump: **{server_total_bumps}** 回！みんな、本当にありがとう！", color=discord.Color.gold())
+            
+        embed = discord.Embed(
+            title="🏆 BUMPランキングボード 🏆", 
+            description=f"サーバー合計Bump: **{server_total_bumps}** 回！みんな、本当にありがとう！", 
+            color=discord.Color.gold()
+        )
+        
         for i, record in enumerate(top_users):
             user = await bot.fetch_user(record['user_id'])
             user_bumps = record['bump_count']
             rank_emoji = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"**{i+1}位**"
             embed.add_field(name=f"{rank_emoji} {user.display_name}", value=f"> **{user_bumps}** 回", inline=False)
+            
         embed.set_footer(text="君のBumpが、このサーバーの歴史を創る！")
         await interaction.followup.send(embed=embed)
+        
+    except discord.NotFound:
+        # インタラクションが期限切れの場合
+        logging.warning("Interaction expired for bump_top command")
     except Exception as e:
         logging.error(f"Error in /bump_top: {e}", exc_info=True)
-        await interaction.followup.send("ごめん！ランキングの表示中にエラーが起きました。")
+        try:
+            # エラー時もインタラクションの状態を確認してから応答
+            if not interaction.response.is_done():
+                await interaction.response.send_message("ごめん！ランキングの表示中にエラーが起きました。", ephemeral=True)
+            else:
+                await interaction.followup.send("ごめん！ランキングの表示中にエラーが起きました。")
+        except discord.NotFound:
+            logging.warning("Could not send error message - interaction expired")
 
 @bot.tree.command(name="bump_user", description="指定したユーザーのBump回数を表示します。")
 async def bump_user(interaction: discord.Interaction, user: discord.User):
-    await interaction.response.defer()
     try:
+        # 即座に応答してDiscordの3秒制限を回避
+        await interaction.response.defer()
+        
         count = await db.get_user_count(user.id)
         await interaction.followup.send(f"{user.display_name}さんの累計Bump回数は **{count}回** です。")
+        
+    except discord.NotFound:
+        # インタラクションが期限切れの場合
+        logging.warning("Interaction expired for bump_user command")
     except Exception as e:
         logging.error(f"Error in /bump_user: {e}", exc_info=True)
-        await interaction.followup.send("ごめん！回数の表示中にエラーが起きました。")
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("ごめん！回数の表示中にエラーが起きました。", ephemeral=True)
+            else:
+                await interaction.followup.send("ごめん！回数の表示中にエラーが起きました。")
+        except discord.NotFound:
+            logging.warning("Could not send error message - interaction expired")
 
 @bot.tree.command(name="bump_time", description="次のBumpリマインド時刻を表示します。")
 async def bump_time(interaction: discord.Interaction):
-    await interaction.response.defer()
     try:
+        # 即座に応答してDiscordの3秒制限を回避
+        await interaction.response.defer()
+        
         reminder = await db.get_reminder()
         if reminder:
             remind_at = reminder['remind_at']
             await interaction.followup.send(f"次のBumpが可能になるのは <t:{int(remind_at.timestamp())}:R> です。")
         else:
             await interaction.followup.send("現在、リマインドは設定されていません。`/bump` をお願いします！")
+            
+    except discord.NotFound:
+        # インタラクションが期限切れの場合
+        logging.warning("Interaction expired for bump_time command")
     except Exception as e:
         logging.error(f"Error in /bump_time: {e}", exc_info=True)
-        await interaction.followup.send("ごめん！リマインド時刻の表示中にエラーが起きました。")
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("ごめん！リマインド時刻の表示中にエラーが起きました。", ephemeral=True)
+            else:
+                await interaction.followup.send("ごめん！リマインド時刻の表示中にエラーが起きました。")
+        except discord.NotFound:
+            logging.warning("Could not send error message - interaction expired")
 
 @bot.tree.command(name="scan_history", description="【管理者用/一度きり】過去のBump履歴をスキャンして登録します。")
 @app_commands.checks.has_permissions(administrator=True)
