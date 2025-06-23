@@ -7,7 +7,7 @@ import ssl # SSLヘルメットを使うためにインポート！
 # ### 共通で使う道具（関数） ###
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# --- 修正箇所：ここを大幅にアップグレード！ ---
+# --- 修正箇所：Supabase用の接続設定を大幅に改善 ---
 async def get_pool():
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL environment variable is not set.")
@@ -18,8 +18,26 @@ async def get_pool():
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     
-    # データベースに接続する際に、このSSL設定（ヘルメット）を渡してあげる
-    return await asyncpg.create_pool(dsn=DATABASE_URL, ssl=ctx)
+    # Supabase環境に最適化された接続設定（「ぐるぐる」問題を解決するための設定）
+    try:
+        pool = await asyncpg.create_pool(
+            dsn=DATABASE_URL, 
+            ssl=ctx,
+            # pgBouncer環境での準備済みステートメント重複エラーを回避
+            statement_cache_size=0,
+            # 接続タイムアウト設定（30秒で接続できなければエラー）
+            timeout=30,
+            # 接続プールの設定
+            min_size=1,      # 最小接続数
+            max_size=10,     # 最大接続数
+            # コマンドタイムアウト設定（60秒でSQLコマンドがタイムアウト）
+            command_timeout=60
+        )
+        return pool
+    except Exception as e:
+        # 接続エラーの詳細をログに出力（デバッグ用）
+        print(f"❌ データベース接続エラーが発生しました: {e}")
+        raise e
 # #################################
 
 
