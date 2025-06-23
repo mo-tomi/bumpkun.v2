@@ -58,8 +58,9 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.author.id == DISBOARD_BOT_ID and message.interaction is not None and message.interaction.name == 'bump':
-        user = message.interaction.user
+    # 非推奨警告を修正：interaction → interaction_metadata
+    if message.author.id == DISBOARD_BOT_ID and message.interaction_metadata is not None and message.interaction_metadata.name == 'bump':
+        user = message.interaction_metadata.user
         logging.info(f"SUCCESS! Bump interaction detected by user: {user.name} ({user.id})")
         
         try:
@@ -74,7 +75,7 @@ async def on_message(message):
             result_message = ""
             if slot_result.count('💎') == 3: result_message = "🎉🎉🎉 **JACKPOT!!** 🎉🎉🎉\nなんと奇跡の **ダイヤモンド揃い**！すごい強運の持ち主だ！"
             elif slot_result.count('⭐') == 3: result_message = "🎊🎊 **BIG WIN!** 🎊🎊\n見事な **スター揃い**！今日は良いことがありそう！"
-            elif slot_result.count('🔔') == 3: result_message = "🔔 **WIN!** 🔔\nラッキーな **ベル揃い**！ささやかな幸せ！"
+            elif slot_result.count('🔔') == 3: result_message = "🔔 **WIN!** 🔔\nラッキーな **ベル揃い**！ささやか幸せ！"
             elif slot_result[0] == slot_result[1] or slot_result[1] == slot_result[2] or slot_result[0] == slot_result[2]: result_message = "おしい！あと一歩だったね！"
             else: result_message = "残念！次のBumpでリベンジだ！"
             await message.channel.send(result_message)
@@ -153,8 +154,9 @@ async def scan_history(interaction: discord.Interaction, limit: app_commands.Ran
         return
     found_bumps = 0
     async for message in interaction.channel.history(limit=limit):
-        if message.author.id == DISBOARD_BOT_ID and message.interaction and message.interaction.name == 'bump':
-            await db.record_bump(message.interaction.user.id)
+        # 非推奨警告を修正：interaction → interaction_metadata
+        if message.author.id == DISBOARD_BOT_ID and message.interaction_metadata and message.interaction_metadata.name == 'bump':
+            await db.record_bump(message.interaction_metadata.user.id)
             found_bumps += 1
     if found_bumps == 0:
         await interaction.followup.send(f"{limit}件のメッセージをスキャンしましたが、Bump履歴は見つかりませんでした。", ephemeral=True)
