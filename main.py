@@ -330,15 +330,76 @@ async def reminder_task():
         logging.error(f"Error in reminder task: {e}", exc_info=True)
 
 
+# --- Bot終了時の処理 ---
+@bot.event
+async def on_disconnect():
+    """Bot切断時にデータベースプールを適切に閉じる"""
+    try:
+        logging.info("Bot is disconnecting, closing database pool...")
+        await db.close_pool()
+        logging.info("Database pool closed successfully.")
+    except Exception as e:
+        logging.error(f"Error while closing database pool: {e}")
+
+# --- プログラム終了時の処理 ---
+import signal
+import sys
+
+def signal_handler(sig, frame):
+    """プログラム終了時にグローバルプールを閉じる"""
+    logging.info("Signal received, shutting down gracefully...")
+    try:
+        # 同期的に非同期関数を実行
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # 既存のループがある場合は、タスクとして追加
+            asyncio.create_task(shutdown_handler())
+        else:
+            # 新しいループを作成して実行
+            asyncio.run(shutdown_handler())
+    except Exception as e:
+        logging.error(f"Error during signal handling: {e}")
+    finally:
+        sys.exit(0)
+
+async def shutdown_handler():
+    """非同期での終了処理"""
+    try:
+        await db.close_pool()
+        logging.info("Database pool closed during shutdown.")
+    except Exception as e:
+        logging.error(f"Error during shutdown: {e}")
+    try:
+        await bot.close()
+        logging.info("Bot closed successfully.")
+    except Exception as e:
+        logging.error(f"Error closing bot: {e}")
+
+# シグナルハンドラーを登録
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 # --- 起動処理 ---
 def main():
     web_thread = threading.Thread(target=run_web_server)
+    web_thread.daemon = True  # メインプロセス終了時にWebサーバーも終了させる
     web_thread.start()
     if TOKEN:
         try:
             bot.run(TOKEN)
+        except KeyboardInterrupt:
+            logging.info("Bot stopped by user (KeyboardInterrupt)")
         except Exception as e:
             logging.error(f"!!! FATAL: Bot failed to run: {e}", exc_info=True)
+        finally:
+            # 最終的な終了処理
+            try:
+                logging.info("Performing final cleanup...")
+                # 非同期処理を同期的に実行
+                asyncio.run(db.close_pool())
+                logging.info("Final cleanup completed.")
+            except Exception as e:
+                logging.error(f"Error during final cleanup: {e}")
     else:
         logging.error("!!! FATAL: DISCORD_BOT_TOKEN not found.")
 

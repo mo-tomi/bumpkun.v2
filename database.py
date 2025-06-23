@@ -7,8 +7,18 @@ import ssl # SSLヘルメットを使うためにインポート！
 # ### 共通で使う道具（関数） ###
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# --- 修正箇所：Supabase用の接続設定を大幅に改善 ---
+# グローバル接続プール（一度作成したら再利用する）
+_global_pool = None
+
+# --- 修正箇所：グローバル接続プールを使用してタイムアウト問題を解決 ---
 async def get_pool():
+    """グローバル接続プールを取得または作成する関数"""
+    global _global_pool
+    
+    # すでにプールが作成されている場合はそれを返す
+    if _global_pool is not None:
+        return _global_pool
+    
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL environment variable is not set.")
     
@@ -18,9 +28,9 @@ async def get_pool():
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     
-    # Supabase環境に最適化された接続設定（「ぐるぐる」問題を解決するための設定）
+    # Supabase環境に最適化された接続設定（タイムアウト問題を解決するための設定）
     try:
-        pool = await asyncpg.create_pool(
+        _global_pool = await asyncpg.create_pool(
             dsn=DATABASE_URL, 
             ssl=ctx,
             # pgBouncer環境での準備済みステートメント重複エラーを回避
@@ -33,11 +43,24 @@ async def get_pool():
             # コマンドタイムアウト設定（60秒でSQLコマンドがタイムアウト）
             command_timeout=60
         )
-        return pool
+        print("✅ グローバルデータベース接続プールを作成しました")
+        return _global_pool
     except Exception as e:
         # 接続エラーの詳細をログに出力（デバッグ用）
         print(f"❌ データベース接続エラーが発生しました: {e}")
         raise e
+
+async def close_pool():
+    """アプリケーション終了時にグローバル接続プールを閉じる関数"""
+    global _global_pool
+    if _global_pool is not None:
+        try:
+            await _global_pool.close()
+            print("✅ グローバルデータベース接続プールを閉じました")
+        except Exception as e:
+            print(f"⚠️ 接続プール終了時のエラー: {e}")
+        finally:
+            _global_pool = None
 # #################################
 
 
@@ -69,20 +92,20 @@ async def init_db():
             INSERT INTO settings (key, value) VALUES ('scan_completed', 'false')
             ON CONFLICT (key) DO NOTHING;
         ''')
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 
 async def is_scan_completed():
     pool = await get_pool()
     async with pool.acquire() as connection:
         record = await connection.fetchrow("SELECT value FROM settings WHERE key = 'scan_completed'")
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return record and record['value'] == 'true'
 
 async def mark_scan_as_completed():
     pool = await get_pool()
     async with pool.acquire() as connection:
         await connection.execute("UPDATE settings SET value = 'true' WHERE key = 'scan_completed'")
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 
 async def record_bump(user_id):
     pool = await get_pool()
@@ -92,7 +115,7 @@ async def record_bump(user_id):
             ON CONFLICT (user_id) DO UPDATE SET bump_count = users.bump_count + 1;
         ''', user_id)
         count = await connection.fetchval('SELECT bump_count FROM users WHERE user_id = $1', user_id)
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return count
 
 async def get_top_users(limit=5):
@@ -101,14 +124,14 @@ async def get_top_users(limit=5):
         records = await connection.fetch(
             'SELECT user_id, bump_count FROM users ORDER BY bump_count DESC LIMIT $1', limit
         )
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return records
 
 async def get_user_count(user_id):
     pool = await get_pool()
     async with pool.acquire() as connection:
         count = await connection.fetchval('SELECT bump_count FROM users WHERE user_id = $1', user_id)
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return count or 0
 
 async def set_reminder(channel_id, remind_time):
@@ -116,7 +139,7 @@ async def set_reminder(channel_id, remind_time):
     async with pool.acquire() as connection:
         await connection.execute('DELETE FROM reminders')
         await connection.execute('INSERT INTO reminders (channel_id, remind_at) VALUES ($1, $2)', channel_id, remind_time)
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 
 async def get_reminder():
     pool = await get_pool()
@@ -124,7 +147,7 @@ async def get_reminder():
         record = await connection.fetchrow(
             'SELECT channel_id, remind_at, status FROM reminders ORDER BY remind_at LIMIT 1'
         )
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return record
 
 async def update_reminder_status(channel_id, new_status):
@@ -133,19 +156,19 @@ async def update_reminder_status(channel_id, new_status):
         await connection.execute(
             'UPDATE reminders SET status = $1 WHERE channel_id = $2', new_status, channel_id
         )
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 
 async def clear_reminder():
     pool = await get_pool()
     async with pool.acquire() as connection:
         await connection.execute('DELETE FROM reminders')
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 
 async def get_total_bumps():
     pool = await get_pool()
     async with pool.acquire() as connection:
         total = await connection.fetchval('SELECT SUM(bump_count) FROM users')
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return total or 0
 
 
@@ -161,7 +184,7 @@ async def init_intro_bot_db():
                 message_id BIGINT NOT NULL
             );
         ''')
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 async def save_intro(user_id, channel_id, message_id):
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -169,14 +192,14 @@ async def save_intro(user_id, channel_id, message_id):
             INSERT INTO introductions (user_id, channel_id, message_id) VALUES ($1, $2, $3)
             ON CONFLICT (user_id) DO UPDATE SET channel_id = $2, message_id = $3;
         ''', user_id, channel_id, message_id)
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 async def get_intro_ids(user_id):
     pool = await get_pool()
     async with pool.acquire() as connection:
         record = await connection.fetchrow(
             "SELECT channel_id, message_id FROM introductions WHERE user_id = $1", user_id
         )
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return record
 
 # --- 守護神ボット用の関数 ---
@@ -205,7 +228,7 @@ async def init_shugoshin_db():
                 last_report_at TIMESTAMP WITH TIME ZONE NOT NULL
             );
         ''')
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 async def setup_guild(guild_id, report_channel_id, urgent_role_id):
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -215,7 +238,7 @@ async def setup_guild(guild_id, report_channel_id, urgent_role_id):
             ON CONFLICT (guild_id) DO UPDATE
             SET report_channel_id = $2, urgent_role_id = $3;
         ''', guild_id, report_channel_id, urgent_role_id)
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 async def get_guild_settings(guild_id):
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -223,7 +246,7 @@ async def get_guild_settings(guild_id):
             "SELECT report_channel_id, urgent_role_id FROM guild_settings WHERE guild_id = $1",
             guild_id
         )
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return settings
 async def check_cooldown(user_id, cooldown_seconds):
     pool = await get_pool()
@@ -242,7 +265,7 @@ async def check_cooldown(user_id, cooldown_seconds):
                 ON CONFLICT (user_id) DO UPDATE SET last_report_at = $2;
             ''', user_id, now)
             return 0
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 async def create_report(guild_id, target_user_id, violated_rule, details, message_link, urgency):
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -251,7 +274,7 @@ async def create_report(guild_id, target_user_id, violated_rule, details, messag
                VALUES ($1, $2, $3, $4, $5, $6) RETURNING report_id''',
             guild_id, target_user_id, violated_rule, details, message_link, urgency
         )
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return report_id
 async def update_report_message_id(report_id, message_id):
     pool = await get_pool()
@@ -260,7 +283,7 @@ async def update_report_message_id(report_id, message_id):
             "UPDATE reports SET message_id = $1 WHERE report_id = $2",
             message_id, report_id
         )
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 async def update_report_status(report_id, new_status):
     pool = await get_pool()
     async with pool.acquire() as connection:
@@ -268,12 +291,12 @@ async def update_report_status(report_id, new_status):
             "UPDATE reports SET status = $1 WHERE report_id = $2",
             new_status, report_id
         )
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
 async def get_report(report_id):
     pool = await get_pool()
     async with pool.acquire() as connection:
         record = await connection.fetchrow("SELECT * FROM reports WHERE report_id = $1", report_id)
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return record
 async def list_reports(status_filter=None):
     pool = await get_pool()
@@ -285,7 +308,7 @@ async def list_reports(status_filter=None):
     query += " ORDER BY report_id DESC LIMIT 20"
     async with pool.acquire() as connection:
         records = await connection.fetch(query, *params)
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return records
 async def get_report_stats():
     pool = await get_pool()
@@ -295,5 +318,5 @@ async def get_report_stats():
             FROM reports 
             GROUP BY status
         ''')
-    await pool.close()
+    # グローバルプールを使用するため、個別にcloseしない
     return {row['status']: row['count'] for row in stats}
