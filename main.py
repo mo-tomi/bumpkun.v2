@@ -115,10 +115,10 @@ async def on_message(message):
             
             reels = ['💎', '⭐', '🔔', '😭']
             slot_result = [random.choice(reels) for _ in range(3)]
-            slot_machine_msg = await message.channel.send(f"{user.mention} さんの運試しスロット！\n`[ ? | ? | ? ]`")
-            await asyncio.sleep(1); await slot_machine_msg.edit(content=f"{user.mention} さんの運試しスロット！\n`[ {slot_result[0]} | ? | ? ]`")
-            await asyncio.sleep(1); await slot_machine_msg.edit(content=f"{user.mention} さんの運試しスロット！\n`[ {slot_result[0]} | {slot_result[1]} | ? ]`")
-            await asyncio.sleep(1); await slot_machine_msg.edit(content=f"{user.mention} さんの運試しスロット！\n`[ {slot_result[0]} | {slot_result[1]} | {slot_result[2]} ]`")
+            slot_machine_msg = await message.channel.send(f"{user.name} さんの運試しスロット！\n`[ ? | ? | ? ]`")
+            await asyncio.sleep(1); await slot_machine_msg.edit(content=f"{user.name} さんの運試しスロット！\n`[ {slot_result[0]} | ? | ? ]`")
+            await asyncio.sleep(1); await slot_machine_msg.edit(content=f"{user.name} さんの運試しスロット！\n`[ {slot_result[0]} | {slot_result[1]} | ? ]`")
+            await asyncio.sleep(1); await slot_machine_msg.edit(content=f"{user.name} さんの運試しスロット！\n`[ {slot_result[0]} | {slot_result[1]} | {slot_result[2]} ]`")
             result_message = ""
             if slot_result.count('💎') == 3: result_message = "🎉🎉🎉 **JACKPOT!!** 🎉🎉🎉\nなんと奇跡の **ダイヤモンド揃い**！すごい強運の持ち主だ！"
             elif slot_result.count('⭐') == 3: result_message = "🎊🎊 **BIG WIN!** 🎊🎊\n見事な **スター揃い**！今日は良いことがありそう！"
