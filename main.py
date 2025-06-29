@@ -134,9 +134,9 @@ async def on_message(message):
             elif 100 <= count < 200: bump_title = "BUMPの英雄👑"
             elif count >= 200: bump_title = "BUMPの神様⛩️"
             thanks_messages = ["最高のBumpをありがとう！君はサーバーの希望だ！", "ナイスBump！この調子でサーバーを盛り上げていこう！", "君のBumpが、サーバーを次のステージへ押し上げる！サンキュー！", "お疲れ様！君の貢献に心から感謝するよ！"]
-            response_message = (f"**{bump_title}** {user.mention}\n{random.choice(thanks_messages)}\n\nあなたの累計Bump回数は **{count}回** です！\n次のBumpは <t:{int(next_bump_time.timestamp())}:R> に可能になります。またよろしくね！")
+            response_message = (f"**{bump_title}** {user.name}\n{random.choice(thanks_messages)}\n\nあなたの累計Bump回数は **{count}回** です！\n次のBumpは <t:{int(next_bump_time.timestamp())}:R> に可能になります。またよろしくね！")
             await message.channel.send(response_message)
-            if count in [10, 50, 100, 150, 200]: await message.channel.send(f"🎉🎉Congratulation!!🎉🎉 {user.mention} ついに累計 **{count}回** のBumpを達成！{bump_title}になった！")
+            if count in [10, 50, 100, 150, 200]: await message.channel.send(f"🎉🎉Congratulation!!🎉🎉 {user.name} ついに累計 **{count}回** のBumpを達成！{bump_title}になった！")
 
             await db.set_reminder(message.channel.id, next_bump_time)
             logging.info(f"Reminder set for {next_bump_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
