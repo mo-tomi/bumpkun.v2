@@ -310,6 +310,52 @@ async def on_scan_history_error(interaction: discord.Interaction, error: app_com
         else:
             await interaction.followup.send("スキャン中にエラーが発生しました。しばらく待ってから再試行してください。", ephemeral=True)
 
+# --- リアルタイムカウントアップ機能 ---
+async def start_real_time_countdown(message, start_time):
+    """メッセージをリアルタイムで更新してカウントアップを表示"""
+    try:
+        # 10分間（10回）更新する
+        for _ in range(10):
+            await asyncio.sleep(60)  # 1分待機
+            
+            try:
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
+                time_elapsed = now_utc - start_time
+                hours = int(time_elapsed.total_seconds() // 3600)
+                minutes = int((time_elapsed.total_seconds() % 3600) // 60)
+                
+                if hours > 0:
+                    elapsed_str = f"{hours}時間{minutes}分"
+                else:
+                    elapsed_str = f"{minutes}分"
+                
+                # メンションを保持したまま時間部分のみ更新
+                original_content = message.content
+                # 時間部分を新しい時間に置換（時間あり/なし両方に対応）
+                updated_content = re.sub(
+                    r'前回のBumpから \*\*(\d+時間)?\d+分\*\* が経過しました。',
+                    f'前回のBumpから **{elapsed_str}** が経過しました。',
+                    original_content
+                )
+                
+                await message.edit(content=updated_content)
+                logging.info(f"Updated countdown message: {elapsed_str}")
+                
+            except discord.NotFound:
+                # メッセージが削除された場合は停止
+                logging.info("Countdown message was deleted, stopping updates")
+                break
+            except discord.Forbidden:
+                # 編集権限がない場合は停止
+                logging.warning("No permission to edit message, stopping countdown")
+                break
+            except Exception as e:
+                logging.error(f"Error updating countdown message: {e}")
+                break
+                
+    except Exception as e:
+        logging.error(f"Error in real-time countdown: {e}")
+
 # --- 定期タスク (新しい2段階リマインダーロジック) ---
 @tasks.loop(minutes=1)
 async def reminder_task():
@@ -358,7 +404,11 @@ async def reminder_task():
                         time_elapsed = now_utc - remind_at
                         hours = int(time_elapsed.total_seconds() // 3600)
                         minutes = int((time_elapsed.total_seconds() % 3600) // 60)
-                        elapsed_str = f"{hours}時間{minutes}分"
+                        
+                        if hours > 0:
+                            elapsed_str = f"{hours}時間{minutes}分"
+                        else:
+                            elapsed_str = f"{minutes}分"
                         
                         message = (
                             f"{mentions_str}\n"
@@ -366,8 +416,11 @@ async def reminder_task():
                             f"前回のBumpから **{elapsed_str}** が経過しました。\n"
                             "サーバーの宣伝のため、お時間のある時にBumpをお願いいたします。🙇‍♂️"
                         )
-                        await channel.send(message)
+                        sent_message = await channel.send(message)
                         logging.info(f"Sent 2nd (admin) reminder to channel {channel_id}")
+                        
+                        # リアルタイムカウントアップを開始（バックグラウンドで実行）
+                        asyncio.create_task(start_real_time_countdown(sent_message, remind_at))
                     else:
                         # 管理者が見つからない場合は一般的なメッセージを送信
                         await channel.send("⏰ Bumpの時間が過ぎています。どなたかBumpをお願いします！")
