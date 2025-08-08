@@ -119,14 +119,14 @@ async def on_message(message):
             await asyncio.sleep(1); await slot_machine_msg.edit(content=f"{user.name} さんの運試しスロット！\n`[ {slot_result[0]} | ? | ? ]`")
             await asyncio.sleep(1); await slot_machine_msg.edit(content=f"{user.name} さんの運試しスロット！\n`[ {slot_result[0]} | {slot_result[1]} | ? ]`")
             await asyncio.sleep(1); await slot_machine_msg.edit(content=f"{user.name} さんの運試しスロット！\n`[ {slot_result[0]} | {slot_result[1]} | {slot_result[2]} ]`")
+            
             result_message = ""
             if slot_result.count('💎') == 3: result_message = "🎉🎉🎉 **JACKPOT!!** 🎉🎉🎉\nなんと奇跡の **ダイヤモンド揃い**！すごい強運の持ち主だ！"
             elif slot_result.count('⭐') == 3: result_message = "🎊🎊 **BIG WIN!** 🎊🎊\n見事な **スター揃い**！今日は良いことがありそう！"
             elif slot_result.count('🔔') == 3: result_message = "🔔 **WIN!** 🔔\nラッキーな **ベル揃い**！ささやか幸せ！"
             elif slot_result[0] == slot_result[1] or slot_result[1] == slot_result[2] or slot_result[0] == slot_result[2]: result_message = "おしい！あと一歩だったね！"
             else: result_message = "残念！次のBumpでリベンジだ！"
-            await message.channel.send(result_message)
-            await asyncio.sleep(2)
+            
             next_bump_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=2)
             bump_title = "BUMPの新人🔰"
             if 10 <= count < 50: bump_title = "BUMPの常連⭐"
@@ -134,9 +134,20 @@ async def on_message(message):
             elif 100 <= count < 200: bump_title = "BUMPの英雄👑"
             elif count >= 200: bump_title = "BUMPの神様⛩️"
             thanks_messages = ["最高のBumpをありがとう！君はサーバーの希望だ！", "ナイスBump！この調子でサーバーを盛り上げていこう！", "君のBumpが、サーバーを次のステージへ押し上げる！サンキュー！", "お疲れ様！君の貢献に心から感謝するよ！"]
-            response_message = (f"**{bump_title}** {user.name}\n{random.choice(thanks_messages)}\n\nあなたの累計Bump回数は **{count}回** です！\n次のBumpは <t:{int(next_bump_time.timestamp())}:R> に可能になります。またよろしくね！")
-            await message.channel.send(response_message)
-            if count in [10, 50, 100, 150, 200]: await message.channel.send(f"🎉🎉Congratulation!!🎉🎉 {user.name} ついに累計 **{count}回** のBumpを達成！{bump_title}になった！")
+            
+            combined_message = (
+                f"{result_message}\n"
+                f"**{bump_title}** {user.name}\n"
+                f"{random.choice(thanks_messages)}\n\n"
+                f"あなたの累計Bump回数は **{count}回** です！\n"
+                f"次のBumpは <t:{int(next_bump_time.timestamp())}:R> に可能になります。またよろしくね！"
+            )
+            
+            if count in [10, 50, 100, 150, 200]:
+                combined_message += f"\n\n🎉🎉Congratulation!!🎉🎉 {user.name} ついに累計 **{count}回** のBumpを達成！{bump_title}になった！"
+            
+            await asyncio.sleep(2)
+            await message.channel.send(combined_message)
 
             await db.set_reminder(message.channel.id, next_bump_time)
             logging.info(f"Reminder set for {next_bump_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
@@ -314,13 +325,19 @@ async def on_scan_history_error(interaction: discord.Interaction, error: app_com
 async def start_real_time_countdown(message, start_time):
     """メッセージをリアルタイムで更新してカウントアップを表示"""
     try:
-        # 10分間（10回）更新する
-        for _ in range(10):
+        # 2時間（120分）まで更新を続ける
+        while True:
             await asyncio.sleep(60)  # 1分待機
             
             try:
                 now_utc = datetime.datetime.now(datetime.timezone.utc)
                 time_elapsed = now_utc - start_time
+                
+                # 2時間経過したら停止
+                if time_elapsed.total_seconds() >= 7200:  # 2時間 = 7200秒
+                    logging.info("2 hours elapsed, stopping countdown updates")
+                    break
+                
                 hours = int(time_elapsed.total_seconds() // 3600)
                 minutes = int((time_elapsed.total_seconds() % 3600) // 60)
                 
