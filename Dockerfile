@@ -4,7 +4,7 @@
 
 # STEP 1: 家の土台と骨組みを選ぶ
 # Pythonバージョン3.11が使える、スリムで頑丈な土台(OS)を使います。
-FROM python:3.13-slim@sha256:f2fdaec50160418e0c2867ba3e254755edd067171725886d5d303fd7057bbf81
+FROM python:3.13-slim@sha256:6f79e7a10bb7d0b0a50534a70ebc78823f941fba26143ecd7e6c5dca9d7d7e8a
 
 # STEP 2: 家の中で作業する場所を決める
 # 「/app」という名前の作業部屋を作って、これからはそこで作業します。
