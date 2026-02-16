@@ -429,7 +429,6 @@ async def reminder_task():
                         
                         message = (
                             f"{mentions_str}\n"
-                            "管理者の皆様、お疲れ様です。\n"
                             f"前回のBumpから **{elapsed_str}** が経過しました。\n"
                             "サーバーの宣伝のため、お時間のある時にBumpをお願いいたします。🙇‍♂️"
                         )
