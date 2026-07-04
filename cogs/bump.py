@@ -98,3 +98,6 @@ def get_streak_badge(streak: int) -> str:
         if streak >= threshold:
             return badge
     return ""
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(BumpCog(bot))
