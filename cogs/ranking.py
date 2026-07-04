@@ -1,152 +1,191 @@
-# cogs/bump.py - Bump検知 + スロットマシン演出(2種類からランダム選択)
+# cogs/ranking.py - ランキングコマンド（v3: 10位まで + 週間ランキング + 個人統計強化）
 
 import discord
 from discord.ext import commands
-import random
-import datetime
-import asyncio
+from discord import app_commands
 import logging
 import database as db
-from config import (
-    DISBOARD_BOT_ID, BUMP_COOLDOWN_HOURS,
-    SLOT_MACHINES,
-    THANKS_MESSAGES, MILESTONES,
-    get_bump_title, get_streak_badge,
-)
+from config import RANKING_LIMIT, RANKING_EXCLUDED_NAMES, get_bump_title, get_streak_badge
 
 
-def _detect_bump(message: discord.Message):
-    """DISBOARDのBumpを検知してユーザーを返す。検知できなければNone"""
-    if message.author.id != DISBOARD_BOT_ID:
-        return None
-
-    user = None
-
-    # interaction_metadata(新API)を優先チェック
-    meta = getattr(message, 'interaction_metadata', None)
-    if meta is not None:
-        name = getattr(meta, 'name', None) or getattr(meta, 'command_name', None)
-        if name == 'bump' or (name is None and hasattr(meta, 'user')):
-            user = getattr(meta, 'user', None)
-
-    # フォールバック: 旧 interaction
-    if user is None:
-        old = getattr(message, 'interaction', None)
-        if old is not None and getattr(old, 'name', None) == 'bump':
-            user = getattr(old, 'user', None)
-
-    return user
-
-
-class BumpCog(commands.Cog):
+class RankingCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        user = _detect_bump(message)
-        if user is None:
-            return
+    async def _resolve_ranked_users(self, records, limit):
+        """レコードからユーザーを解決し、除外対象を除いてlimit件返す"""
+        resolved = []
+        for record in records:
+            try:
+                user = await self.bot.fetch_user(record['user_id'])
+                name = user.display_name
+            except Exception:
+                continue  # 削除済みアカウントなどは除外
 
-        logging.info(f"Bump検知: {user.name} ({user.id})")
+            if name in RANKING_EXCLUDED_NAMES:
+                continue
 
+            resolved.append((record, name))
+            if len(resolved) >= limit:
+                break
+
+        return resolved
+
+    @app_commands.command(name="bump_top", description="累計Bumpランキング（TOP10）を表示します。")
+    async def bump_top(self, interaction: discord.Interaction):
         try:
-            result = await db.record_bump(user.id)
-            count = result['bump_count']
-            streak = result['current_streak']
-            max_streak = result['max_streak']
-            weekly = result['weekly_count']
-            is_new_record = result['is_new_streak_record']
+            await interaction.response.defer()
+            top_users = await db.get_top_users(RANKING_LIMIT + len(RANKING_EXCLUDED_NAMES))
+            server_total = await db.get_total_bumps()
 
-            # --- スロットマシン演出(2種類からランダムに選択) ---
-            machine = random.choice(SLOT_MACHINES)
-            machine_name = machine["name"]
-            reels = machine["reels"]
-            jackpot_messages = machine["jackpot_messages"]
+            ranked = await self._resolve_ranked_users(top_users, RANKING_LIMIT)
 
-            slot = [random.choice(reels) for _ in range(3)]
-            msg = await message.channel.send(f"{user.name} さんの{machine_name}！\n`[ ? | ? | ? ]`")
-            await asyncio.sleep(1)
-            await msg.edit(content=f"{user.name} さんの{machine_name}！\n`[ {slot[0]} | ? | ? ]`")
-            await asyncio.sleep(1)
-            await msg.edit(content=f"{user.name} さんの{machine_name}！\n`[ {slot[0]} | {slot[1]} | ? ]`")
-            await asyncio.sleep(1)
-            await msg.edit(content=f"{user.name} さんの{machine_name}！\n`[ {slot[0]} | {slot[1]} | {slot[2]} ]`")
-
-            # スロット結果判定
-            if slot[0] == slot[1] == slot[2]:
-                slot_msg = jackpot_messages.get(slot[0], "🎉 **揃った！** 🎉")
-            elif slot[0] == slot[1] or slot[1] == slot[2] or slot[0] == slot[2]:
-                slot_msg = "おしい！あと一歩だったね！"
-            else:
-                slot_msg = "残念！次のBumpでリベンジだ！"
-
-            # --- Embed構築 ---
-            title = get_bump_title(count)
-            streak_badge = get_streak_badge(streak)
-            next_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=BUMP_COOLDOWN_HOURS)
+            if not ranked:
+                await interaction.followup.send("まだ誰もBumpしていません。君が最初のヒーローになろう！")
+                return
 
             embed = discord.Embed(
-                title=f"{title}　{user.display_name}",
-                description=slot_msg,
-                color=discord.Color.gold() if slot[0] == slot[1] == slot[2] else discord.Color.blue(),
+                title="🏆 BUMPランキングボード TOP10 🏆",
+                description=f"サーバー合計Bump: **{server_total}** 回！",
+                color=discord.Color.gold(),
+            )
+
+            rank_emojis = ["🥇", "🥈", "🥉"] + [f"**{i}位**" for i in range(4, RANKING_LIMIT + 1)]
+
+            for i, (record, name) in enumerate(ranked):
+                bumps = record['bump_count']
+                streak = record.get('current_streak', 0)
+                title = get_bump_title(bumps)
+
+                value = f"> **{bumps}** 回"
+                if streak >= 3:
+                    badge = get_streak_badge(streak)
+                    value += f"　{badge}({streak}日連続)"
+
+                embed.add_field(
+                    name=f"{rank_emojis[i]} {name}　{title}",
+                    value=value,
+                    inline=False,
+                )
+
+            embed.set_footer(text="君のBumpが、このサーバーの歴史を創る！")
+            await interaction.followup.send(embed=embed)
+
+        except discord.NotFound:
+            logging.warning("Interaction expired: bump_top")
+        except Exception as e:
+            logging.error(f"/bump_top エラー: {e}", exc_info=True)
+            await _safe_error_reply(interaction, "ランキングの表示中にエラーが起きました。")
+
+    @app_commands.command(name="bump_weekly", description="今週のBumpランキングを表示します。")
+    async def bump_weekly(self, interaction: discord.Interaction):
+        try:
+            await interaction.response.defer()
+            weekly = await db.get_weekly_top_users(RANKING_LIMIT + len(RANKING_EXCLUDED_NAMES))
+
+            ranked = await self._resolve_ranked_users(weekly, RANKING_LIMIT)
+
+            if not ranked:
+                await interaction.followup.send("今週はまだ誰もBumpしていません！")
+                return
+
+            embed = discord.Embed(
+                title="📅 今週のBUMPランキング 📅",
+                description="月曜日〜日曜日の集計",
+                color=discord.Color.green(),
+            )
+
+            rank_emojis = ["🥇", "🥈", "🥉"] + [f"**{i}位**" for i in range(4, RANKING_LIMIT + 1)]
+
+            for i, (record, name) in enumerate(ranked):
+                bumps = record['bump_count']
+                streak = record.get('current_streak', 0)
+
+                value = f"> **{bumps}** 回"
+                if streak >= 3:
+                    value += f"　🔥{streak}日連続"
+
+                embed.add_field(
+                    name=f"{rank_emojis[i]} {name}",
+                    value=value,
+                    inline=False,
+                )
+
+            # 1位のユーザーをMVP表示
+            try:
+                mvp_id = ranked[0][0]['user_id']
+                mvp = await self.bot.fetch_user(mvp_id)
+                embed.set_thumbnail(url=mvp.display_avatar.url)
+                embed.set_footer(text=f"🌟 今週のMVP: {ranked[0][1]}")
+            except Exception:
+                pass
+
+            await interaction.followup.send(embed=embed)
+
+        except discord.NotFound:
+            logging.warning("Interaction expired: bump_weekly")
+        except Exception as e:
+            logging.error(f"/bump_weekly エラー: {e}", exc_info=True)
+            await _safe_error_reply(interaction, "週間ランキングの表示中にエラーが起きました。")
+
+    @app_commands.command(name="bump_user", description="指定したユーザーの詳細Bump統計を表示します。")
+    async def bump_user(self, interaction: discord.Interaction, user: discord.User):
+        try:
+            await interaction.response.defer()
+            stats = await db.get_user_stats(user.id)
+
+            embed = discord.Embed(
+                title=f"📊 {user.display_name} のBump統計",
+                color=discord.Color.blue(),
             )
             embed.set_thumbnail(url=user.display_avatar.url)
 
-            # 統計フィールド
-            stats_text = (
-                f"累計: **{count}回**\n"
-                f"今週: **{weekly}回**"
-            )
-            embed.add_field(name="📊 Bump記録", value=stats_text, inline=True)
+            title = get_bump_title(stats['bump_count'])
+            badge = get_streak_badge(stats['current_streak'])
 
-            # Streak表示
-            streak_text = f"連続: **{streak}日**"
-            if streak_badge:
-                streak_text += f"\n{streak_badge}"
-            if max_streak > 1:
-                streak_text += f"\n自己ベスト: **{max_streak}日**"
-            embed.add_field(name="🔥 連続記録", value=streak_text, inline=True)
+            embed.add_field(name="称号", value=title, inline=True)
+            embed.add_field(name="累計Bump", value=f"**{stats['bump_count']}** 回", inline=True)
+            embed.add_field(name="今週", value=f"**{stats['weekly_count']}** 回", inline=True)
+            embed.add_field(name="現在の連続", value=f"**{stats['current_streak']}** 日 {badge}", inline=True)
+            embed.add_field(name="最長連続", value=f"**{stats['max_streak']}** 日", inline=True)
 
-            # 次のBump時刻
-            embed.add_field(
-                name="⏰ 次のBump",
-                value=f"<t:{int(next_time.timestamp())}:R>",
-                inline=False,
-            )
+            await interaction.followup.send(embed=embed)
 
-            # お礼メッセージ
-            embed.set_footer(text=random.choice(THANKS_MESSAGES))
-
-            await asyncio.sleep(2)
-            await message.channel.send(embed=embed)
-
-            # --- マイルストーン通知 ---
-            if count in MILESTONES:
-                milestone_embed = discord.Embed(
-                    title="🎉🎉 Congratulation!! 🎉🎉",
-                    description=(
-                        f"{user.mention} ついに累計 **{count}回** のBumpを達成！\n"
-                        f"**{title}** に昇格！"
-                    ),
-                    color=discord.Color.yellow(),
-                )
-                await message.channel.send(embed=milestone_embed)
-
-            # --- 連続記録の自己ベスト更新通知 ---
-            if is_new_record:
-                await message.channel.send(
-                    f"🔥 {user.mention} 連続Bump記録更新！ **{streak}日連続** おめでとう！"
-                )
-
-            # リマインダー設定
-            await db.set_reminder(message.channel.id, next_time)
-            logging.info(f"リマインダー設定: {next_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-
+        except discord.NotFound:
+            logging.warning("Interaction expired: bump_user")
         except Exception as e:
-            logging.error(f"Bump処理エラー: {e}", exc_info=True)
-            await message.channel.send("Bumpは検知できたけど、記録中にエラーが起きたみたい…ごめんね！")
+            logging.error(f"/bump_user エラー: {e}", exc_info=True)
+            await _safe_error_reply(interaction, "統計の表示中にエラーが起きました。")
+
+    @app_commands.command(name="bump_time", description="次のBumpリマインド時刻を表示します。")
+    async def bump_time(self, interaction: discord.Interaction):
+        try:
+            await interaction.response.defer()
+            reminder = await db.get_reminder()
+            if reminder:
+                remind_at = reminder['remind_at']
+                await interaction.followup.send(
+                    f"次のBumpが可能になるのは <t:{int(remind_at.timestamp())}:R> です。"
+                )
+            else:
+                await interaction.followup.send("現在、リマインドは設定されていません。`/bump` をお願いします！")
+        except discord.NotFound:
+            logging.warning("Interaction expired: bump_time")
+        except Exception as e:
+            logging.error(f"/bump_time エラー: {e}", exc_info=True)
+            await _safe_error_reply(interaction, "リマインド時刻の表示中にエラーが起きました。")
+
+
+async def _safe_error_reply(interaction: discord.Interaction, text: str):
+    """インタラクションの状態に応じて安全にエラーメッセージを送る"""
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(text, ephemeral=True)
+        else:
+            await interaction.followup.send(text)
+    except discord.NotFound:
+        logging.warning("Could not send error message - interaction expired")
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(BumpCog(bot))
+    await bot.add_cog(RankingCog(bot))
