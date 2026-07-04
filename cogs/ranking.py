@@ -20,10 +20,10 @@ class RankingCog(commands.Cog):
                 user = await self.bot.fetch_user(record['user_id'])
                 name = user.display_name
             except Exception:
-                continue  # 削除済みアカウントなどは除外
+                continue  # 取得不可なアカウントは除外
 
-            if name in RANKING_EXCLUDED_NAMES:
-                continue
+            if name in RANKING_EXCLUDED_NAMES or name.startswith("deleted_user_"):
+                continue  # 削除済みアカウント(Discordのプレースホルダー名)を除外
 
             resolved.append((record, name))
             if len(resolved) >= limit:
