@@ -1,4 +1,4 @@
-discord.py==2.5.2
+discord.py==2.7.1
 asyncpg==0.30.0
 Flask==3.1.1
 gunicorn==23.0.0
