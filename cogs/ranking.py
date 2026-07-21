@@ -7,20 +7,34 @@ import logging
 import database as db
 from config import RANKING_LIMIT, RANKING_EXCLUDED_NAMES, get_bump_title, get_streak_badge
 
+# 退出者・除外対象を差し引いてもTOP{RANKING_LIMIT}を埋められるよう、候補を多めに取得する
+RANKING_CANDIDATE_POOL = RANKING_LIMIT * 5 + len(RANKING_EXCLUDED_NAMES)
+
 
 class RankingCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def _resolve_ranked_users(self, records, limit):
-        """レコードからユーザーを解決し、除外対象を除いてlimit件返す"""
+    async def _resolve_ranked_users(self, guild, records, limit):
+        """レコードを解決し、サーバー在籍者だけをlimit件返す。
+
+        fetch_userはグローバル検索のため、すでにサーバーを退出した人も
+        引けてしまう。guildが分かる場合はfetch_memberで在籍を確認し、
+        退出者・削除済みアカウントはランキングから除外する。
+        """
         resolved = []
         for record in records:
             try:
-                user = await self.bot.fetch_user(record['user_id'])
+                if guild is not None:
+                    # サーバーに今も在籍している人だけを対象にする
+                    user = await guild.fetch_member(record['user_id'])
+                else:
+                    user = await self.bot.fetch_user(record['user_id'])
                 name = user.display_name
-            except Exception:
-                continue  # 取得不可なアカウントは除外
+            except discord.NotFound:
+                continue  # 退出済み or 存在しないアカウント → 除外
+            except discord.HTTPException:
+                continue  # 取得失敗時も安全側で除外
 
             if name in RANKING_EXCLUDED_NAMES or name.startswith("deleted_user_"):
                 continue  # 削除済みアカウント(Discordのプレースホルダー名)を除外
@@ -35,10 +49,10 @@ class RankingCog(commands.Cog):
     async def bump_top(self, interaction: discord.Interaction):
         try:
             await interaction.response.defer()
-            top_users = await db.get_top_users(RANKING_LIMIT + len(RANKING_EXCLUDED_NAMES))
+            top_users = await db.get_top_users(RANKING_CANDIDATE_POOL)
             server_total = await db.get_total_bumps()
 
-            ranked = await self._resolve_ranked_users(top_users, RANKING_LIMIT)
+            ranked = await self._resolve_ranked_users(interaction.guild, top_users, RANKING_LIMIT)
 
             if not ranked:
                 await interaction.followup.send("まだ誰もBumpしていません。君が最初のヒーローになろう！")
@@ -81,9 +95,9 @@ class RankingCog(commands.Cog):
     async def bump_weekly(self, interaction: discord.Interaction):
         try:
             await interaction.response.defer()
-            weekly = await db.get_weekly_top_users(RANKING_LIMIT + len(RANKING_EXCLUDED_NAMES))
+            weekly = await db.get_weekly_top_users(RANKING_CANDIDATE_POOL)
 
-            ranked = await self._resolve_ranked_users(weekly, RANKING_LIMIT)
+            ranked = await self._resolve_ranked_users(interaction.guild, weekly, RANKING_LIMIT)
 
             if not ranked:
                 await interaction.followup.send("今週はまだ誰もBumpしていません！")
